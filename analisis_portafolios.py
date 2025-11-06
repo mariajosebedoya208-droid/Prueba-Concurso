@@ -63,7 +63,7 @@ st.markdown("""
 
 <div class="main-header">
     <div class="main-title">
-        <span>🧠</span>
+        <span></span>
         <span>Smart Portafolio</span>
         <span>📈</span>
     </div>
