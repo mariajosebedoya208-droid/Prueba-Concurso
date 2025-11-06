@@ -26,9 +26,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 
 warnings.filterwarnings('ignore')
 
-st.markdown("<h1 style='text-align: center; color:#004aad;'>Smart Portafolio - Simulación de Escenarios</h1>", unsafe_allow_html=True)
-
-# Agrega esto justo después de tus imports
+# LOGO Y MARCA
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -110,6 +108,12 @@ inversion_inicial = st.sidebar.number_input("💰 Inversión Inicial (USD)", min
 # Frecuencia temporal
 frecuencia = st.sidebar.selectbox("⏱️ Frecuencia Temporal", ["Diaria", "Semanal", "Mensual"])
 
+# Proyección futura
+st.sidebar.markdown("## 🔮 Proyección Futura")
+incluir_proyeccion = st.sidebar.checkbox("Incluir proyección futura")
+if incluir_proyeccion:
+    años_proyeccion = st.sidebar.slider("Años a proyectar", 1, 10, 3)
+
 # Botón para ejecutar
 descargar = st.sidebar.button("📥 Descargar y Analizar")
 
@@ -126,6 +130,72 @@ def validar_tickers(tickers):
         except:
             st.warning(f"⚠️ Error al validar ticker {ticker}")
     return tickers_validos
+
+# Funciones de proyección
+def proyeccion_monte_carlo(data, years=5, num_simulations=1000):
+    """
+    Proyecta precios futuros usando simulación Monte Carlo
+    Basado en la volatilidad y tendencia histórica
+    """
+    # Calcular retornos logarítmicos (más realistas)
+    returns = np.log(data / data.shift(1)).dropna()
+    
+    # Parámetros para la simulación
+    days = years * 252  # Días de trading
+    last_price = data.iloc[-1]
+    
+    # Calcular drift (tendencia) y volatilidad
+    mean_return = returns.mean()
+    volatility = returns.std()
+    
+    # Simulaciones
+    simulations = np.zeros((days, num_simulations))
+    
+    for i in range(num_simulations):
+        # Generar caminos aleatorios (Geometric Brownian Motion)
+        shock = np.random.normal(mean_return, volatility, days)
+        price_path = last_price * np.exp(np.cumsum(shock))
+        simulations[:, i] = price_path
+    
+    return simulations
+
+def proyeccion_portafolio_completo(returns, weights, inversion_inicial, years=3):
+    """
+    Proyecta el valor futuro del portafolio completo
+    """
+    days = years * 252
+    
+    # Parámetros del portafolio
+    mean_returns = returns.mean()
+    cov_matrix = returns.cov()
+    
+    # Simulaciones del portafolio
+    portfolio_simulations = np.zeros((days, 1000))
+    
+    for i in range(1000):
+        # Generar retornos correlacionados
+        random_returns = np.random.multivariate_normal(mean_returns, cov_matrix, days)
+        portfolio_daily_returns = np.dot(random_returns, weights)
+        
+        # Calcular valor del portafolio
+        portfolio_value = inversion_inicial * (1 + portfolio_daily_returns).cumprod()
+        portfolio_simulations[:, i] = portfolio_value
+    
+    return portfolio_simulations
+
+def calcular_metricas_proyeccion(proyecciones, inversion_inicial):
+    """Calcula métricas de riesgo para las proyecciones"""
+    valores_finales = proyecciones[-1, :]
+    
+    metricas = {
+        'Probabilidad_Pérdida': np.mean(valores_finales < inversion_inicial) * 100,
+        'Mejor_Caso': np.max(valores_finales),
+        'Peor_Caso': np.min(valores_finales),
+        'Valor_Esperado': np.mean(valores_finales),
+        'Volatilidad_Proyectada': np.std(valores_finales) / inversion_inicial * 100
+    }
+    
+    return metricas
 
 # Ejecutar análisis al hacer clic
 if descargar:
@@ -232,6 +302,71 @@ if descargar:
     ax2.grid(True, alpha=0.3)
     ax2.fill_between(valor_portafolio.index, valor_portafolio.values, alpha=0.3, color='green')
     st.pyplot(fig2)
+
+    # PROYECCIÓN FUTURA
+    if incluir_proyeccion:
+        st.markdown("---")
+        st.subheader(f"🔮 Proyección {años_proyeccion} Años - Simulación Monte Carlo")
+        
+        # Proyección del portafolio completo
+        proyecciones = proyeccion_portafolio_completo(returns[tickers], weights, inversion_inicial, años_proyeccion)
+        
+        fig_proy, ax_proy = plt.subplots(figsize=(12, 6))
+        
+        # Calcular estadísticas
+        percentil_10 = np.percentile(proyecciones, 10, axis=1)
+        percentil_50 = np.percentile(proyecciones, 50, axis=1)
+        percentil_90 = np.percentile(proyecciones, 90, axis=1)
+        
+        # Fechas futuras
+        last_date = data.index[-1]
+        future_dates = pd.date_range(start=last_date, periods=len(proyecciones), freq='D')
+        
+        # Gráfico
+        ax_proy.plot(future_dates, percentil_50, color='green', linewidth=3, label='Escenario Mediano')
+        ax_proy.fill_between(future_dates, percentil_10, percentil_90, alpha=0.3, color='green',
+                       label='Rango 10%-90%')
+        
+        ax_proy.axhline(y=inversion_inicial, color='red', linestyle='--', 
+                   label=f'Inversión Inicial: ${inversion_inicial:,.0f}')
+        
+        ax_proy.set_title(f"Proyección del Valor del Portafolio - {años_proyeccion} Años")
+        ax_proy.set_ylabel("Valor del Portafolio (USD)")
+        ax_proy.legend()
+        ax_proy.grid(True, alpha=0.3)
+        ax_proy.ticklabel_format(style='plain', axis='y')
+        plt.xticks(rotation=45)
+        st.pyplot(fig_proy)
+        
+        # Métricas de la proyección
+        metricas = calcular_metricas_proyeccion(proyecciones, inversion_inicial)
+        
+        st.subheader("📈 Métricas de la Proyección")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            valor_mediano = percentil_50[-1]
+            st.metric("Valor Proyectado Mediano", f"${valor_mediano:,.0f}")
+        
+        with col2:
+            ganancia_perdida = valor_mediano - inversion_inicial
+            st.metric("Ganancia/Pérdida Proyectada", f"${ganancia_perdida:,.0f}")
+        
+        with col3:
+            roi_proyectado = (valor_mediano / inversion_inicial - 1) * 100
+            st.metric("ROI Proyectado", f"{roi_proyectado:.1f}%")
+            
+        with col4:
+            st.metric("Probabilidad de Pérdida", f"{metricas['Probabilidad_Pérdida']:.1f}%")
+
+        # Advertencias
+        st.markdown("---")
+        st.warning("""
+        **⚠️ LIMITACIONES DE LAS PROYECCIONES:**
+        - Basadas en datos históricos (el futuro puede ser diferente)
+        - No consideran eventos black swan o crisis imprevistas
+        - Asumen que las correlaciones y volatilidades se mantendrán
+        - **Uso educativo:** No tomar como recomendación de inversión
+        """)
 
     # Diagrama riesgo - retorno
     st.subheader("📊 Diagrama Riesgo - Retorno")
