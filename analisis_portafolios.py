@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1OHRI3VCCTIOc3M4eLd18hLDRVqrlBv_n
 """
 
-#!pip install streamlit pandas numpy yfinance matplotlib plotly
+#!pip install streamlit pandas numpy yfinance matplotlib
 
 #Importación las librerías
 
@@ -17,8 +17,6 @@ import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
 import warnings
-import plotly.graph_objects as go
-import plotly.express as px
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -167,48 +165,79 @@ if descargar:
 
     # Visualización de Precios
     st.subheader("📈 Evolución de Precios")
-    fig1 = go.Figure()
+    fig1, ax1 = plt.subplots(figsize=(10, 4))
     for ticker in tickers:
-        fig1.add_trace(go.Scatter(x=data.index, y=data[ticker], mode='lines', name=ticker))
-    fig1.update_layout(title="Evolución de Precios Ajustados", xaxis_title="Fecha", yaxis_title="Precio (USD)")
-    st.plotly_chart(fig1)
+        ax1.plot(data.index, data[ticker], label=ticker)
+    ax1.set_title("Evolución de Precios Ajustados")
+    ax1.set_xlabel("Fecha")
+    ax1.set_ylabel("Precio (USD)")
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    st.pyplot(fig1)
 
-    # Evolución del valor monetario con Plotly
+    # Evolución del valor monetario
     st.subheader("💵 Evolución del Valor del Portafolio")
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=valor_portafolio.index, y=valor_portafolio.values,
-                            mode='lines', name='Portafolio', line=dict(color='green')))
-    fig2.update_layout(title="Evolución del valor monetario del portafolio",
-                      xaxis_title="Fecha", yaxis_title="Valor (USD)")
-    st.plotly_chart(fig2)
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    ax2.plot(valor_portafolio.index, valor_portafolio.values, color='green', linewidth=2)
+    ax2.set_title("Evolución del valor monetario del portafolio")
+    ax2.set_xlabel("Fecha")
+    ax2.set_ylabel("Valor (USD)")
+    ax2.grid(True, alpha=0.3)
+    ax2.fill_between(valor_portafolio.index, valor_portafolio.values, alpha=0.3, color='green')
+    st.pyplot(fig2)
 
     # Diagrama riesgo - retorno
     st.subheader("📊 Diagrama Riesgo - Retorno")
     asset_returns = mean_returns[tickers]
     asset_risk = returns[tickers].std() * np.sqrt(252)
 
-    fig3, ax3 = plt.subplots(figsize=(7, 5))
-    ax3.scatter(asset_risk.values, asset_returns.values, c='blue', s=80)
+    fig3, ax3 = plt.subplots(figsize=(8, 6))
+    scatter = ax3.scatter(asset_risk.values, asset_returns.values, c='blue', s=100, alpha=0.7)
     for i, ticker in enumerate(tickers):
         ax3.text(asset_risk.values[i] + 0.002, asset_returns.values[i], ticker, fontsize=9, ha='left', va='center')
+    
+    # Agregar punto del portafolio completo
+    ax3.scatter(port_volatility, port_return, c='red', s=150, marker='*', label='Portafolio')
+    ax3.text(port_volatility + 0.002, port_return, 'Tu Portafolio', fontsize=10, ha='left', va='center', color='red')
+    
     ax3.set_xlabel("Volatilidad (Riesgo)")
     ax3.set_ylabel("Rendimiento Esperado")
     ax3.set_title("Diagrama Riesgo - Retorno")
+    ax3.legend()
     ax3.grid(True, linestyle='--', alpha=0.6)
     st.pyplot(fig3)
 
-    # Heatmap de correlaciones con Plotly
+    # Heatmap de correlaciones
     st.subheader("🔥 Heatmap de Correlaciones")
     corr_matrix = returns[tickers].corr()
-    fig4 = px.imshow(corr_matrix, text_auto=True, aspect="auto",
-                    color_continuous_scale='RdBu_r', title="Matriz de Correlaciones")
-    st.plotly_chart(fig4)
+    
+    fig4, ax4 = plt.subplots(figsize=(8, 6))
+    im = ax4.imshow(corr_matrix, cmap="coolwarm", interpolation="nearest", vmin=-1, vmax=1)
+    
+    # Mostrar valores en las celdas
+    for i in range(len(corr_matrix)):
+        for j in range(len(corr_matrix)):
+            text = ax4.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
+                           ha="center", va="center", color="black", fontsize=10)
+    
+    plt.colorbar(im, ax=ax4)
+    ax4.set_xticks(range(len(corr_matrix)))
+    ax4.set_xticklabels(corr_matrix.columns, rotation=45)
+    ax4.set_yticks(range(len(corr_matrix)))
+    ax4.set_yticklabels(corr_matrix.columns)
+    ax4.set_title("Matriz de Correlaciones")
+    st.pyplot(fig4)
 
     # Visualización del portafolio
     st.subheader("🥧 Distribución del Portafolio")
-    fig5 = go.Figure(data=[go.Pie(labels=tickers, values=weights, hole=0.3)])
-    fig5.update_layout(title=f"Distribución del Portafolio ({escenario})")
-    st.plotly_chart(fig5)
+    fig5, ax5 = plt.subplots(figsize=(8, 6))
+    wedges, texts, autotexts = ax5.pie(weights, labels=tickers, autopct='%1.1f%%', startangle=90)
+    ax5.set_title(f"Distribución del Portafolio ({escenario})")
+    # Mejorar legibilidad
+    for autotext in autotexts:
+        autotext.set_color('white')
+        autotext.set_fontweight('bold')
+    st.pyplot(fig5)
 
     # Interpretación del escenario
     st.markdown("---")
@@ -226,7 +255,7 @@ if descargar:
     if escenario != "Personalizado":
         # Comparación de escenarios
         st.subheader("📊 Comparación de Escenarios de Inversión")
-        fig_all, axs = plt.subplots(1, 3, figsize=(12, 4))
+        fig_all, axs = plt.subplots(1, 3, figsize=(15, 5))
         for i, (nombre, base_pesos) in enumerate({
             "Conservador": np.linspace(0.6, 0.1, len(tickers)),
             "Moderado": np.linspace(0.4, 0.2, len(tickers)),
@@ -235,8 +264,9 @@ if descargar:
             w = base_pesos / np.sum(base_pesos)
             labels = tickers[:len(w)]
             axs[i].pie(w, labels=labels, autopct='%1.1f%%', startangle=90)
-            axs[i].set_title(nombre)
-        plt.suptitle("Distribución de Pesos por Tipo de Portafolio")
+            axs[i].set_title(nombre, fontweight='bold')
+        plt.suptitle("Distribución de Pesos por Tipo de Portafolio", fontsize=14, fontweight='bold')
+        plt.tight_layout()
         st.pyplot(fig_all)
 
         # Evaluación y recomendación de escenarios
@@ -256,11 +286,12 @@ if descargar:
         df_resultados = pd.DataFrame(resultados).T
         df_resultados = df_resultados.sort_values("sharpe", ascending=False)
 
+        # Mostrar tabla con estilo
         st.dataframe(df_resultados.style.format({
             "rendimiento": "{:.2%}",
             "riesgo": "{:.2%}",
             "sharpe": "{:.2f}"
-        }))
+        }).highlight_max(subset=['sharpe'], color='lightgreen'))
 
         mejor_escenario = df_resultados.index[0]
         st.success(f"✅ El escenario más eficiente según el Ratio de Sharpe es: **{mejor_escenario}** 🎯")
@@ -309,7 +340,8 @@ if descargar:
     <font size=12>
     <b>Escenario seleccionado:</b> {escenario}<br/>
     <b>Activos analizados:</b> {', '.join(tickers)}<br/>
-    <b>Inversión inicial:</b> ${inversion_inicial:,.2f}
+    <b>Inversión inicial:</b> ${inversion_inicial:,.2f}<br/>
+    <b>Periodo de análisis:</b> {fecha_inicio} a {fecha_fin}
     </font>
     """, styles["Normal"])
     elements.append(intro)
@@ -337,6 +369,24 @@ if descargar:
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
     ]))
     elements.append(table)
+    elements.append(Spacer(1, 0.3 * inch))
+
+    # Distribución de pesos
+    pesos_data = [["Activo", "Peso"]]
+    for ticker, peso in zip(tickers, weights):
+        pesos_data.append([ticker, f"{peso:.1%}"])
+    
+    pesos_table = Table(pesos_data, hAlign='LEFT')
+    pesos_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgreen),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    elements.append(Paragraph("<b>Distribución del Portafolio</b>", styles["Normal"]))
+    elements.append(pesos_table)
     elements.append(Spacer(1, 0.3 * inch))
 
     # Conclusión
