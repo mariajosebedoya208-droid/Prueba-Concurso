@@ -7,18 +7,66 @@ Original file is located at
     https://colab.research.google.com/drive/1OHRI3VCCTIOc3M4eLd18hLDRVqrlBv_n
 """
 
+#!pip install streamlit pandas numpy yfinance matplotlib plotly
+
+#Importación las librerías
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import matplotlib.pyplot as plt
+import warnings
+import plotly.graph_objects as go
+import plotly.express as px
+from io import BytesIO
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet
 
-st.title ("💼 Smart Portafolio")
+warnings.filterwarnings('ignore')
+
+st.markdown("<h1 style='text-align: center; color:#004aad;'>Smart Portafolio - Simulación de Escenarios</h1>", unsafe_allow_html=True)
+
 st.write("""
-Esta aplicación analiza un portafolio de inversión aplicando la **Teoría Moderna de Portafolios de Markowitz**.
-Se simulan tres escenarios (Conservador, Moderado y Agresivo) para observar cómo varían el riesgo, el rendimiento y la composición de activos.
-Los datos se obtienen directamente desde **Yahoo Finance**, y los activos seleccionados pertenecen al sector tecnológico.
+Esta aplicación realiza una **simulación de escenarios de inversión**, aplicando la *Teoría Moderna de Portafolios de Markowitz*.
+
+Se analizan tres tipos de portafolios según el perfil de riesgo del inversionista:
+
+- 🟩 **Conservador:** prioriza la estabilidad, minimizando el riesgo.  
+- 🟨 **Moderado:** busca equilibrio entre riesgo y rentabilidad.  
+- 🟥 **Agresivo:** asume un riesgo alto para intentar maximizar las ganancias.
+
+Los datos se obtienen directamente desde **Yahoo Finance**, permitiendo analizar empresas reales del mercado financiero.
 """)
+
+# Configuración de entradas
+
+st.sidebar.markdown("## ⚙️ Configuración del Análisis")
+
+# Entrada libre de tickers
+tickers_input = st.sidebar.text_input(
+    "Empresas (separa por comas):",
+    value="AAPL, MSFT, TSLA"
+)
+
+# Convertir texto en lista
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip() != ""]
+
+# Rango de fechas
+fecha_inicio = st.sidebar.date_input("📅 Fecha Inicial", pd.to_datetime("2020-01-01"))
+fecha_fin = st.sidebar.date_input("📅 Fecha Final", pd.to_datetime("2023-12-31"))
+
+# Inversión inicial
+inversion_inicial = st.sidebar.number_input("💰 Inversión Inicial (USD)", min_value=1000, value=10000, step=500)
+
+# Frecuencia temporal
+frecuencia = st.sidebar.selectbox("⏱️ Frecuencia Temporal", ["Diaria", "Semanal", "Mensual"])
+
+# Botón para ejecutar
+descargar = st.sidebar.button("📥 Descargar y Analizar")
 
 # Validación de tickers
 def validar_tickers(tickers):
@@ -28,20 +76,22 @@ def validar_tickers(tickers):
             info = yf.Ticker(ticker).info
             if info.get('regularMarketPrice') is not None:
                 tickers_validos.append(ticker)
+            else:
+                st.warning(f"⚠️ Ticker {ticker} no encontrado en Yahoo Finance")
         except:
-            st.warning(f"⚠️ Ticker {ticker} no válido")
+            st.warning(f"⚠️ Error al validar ticker {ticker}")
     return tickers_validos
 
 # Ejecutar análisis al hacer clic
 if descargar:
     if len(tickers) == 0:
-        st.error("❌ Ingresa al menos un ticker")
+        st.error("❌ Por favor ingresa al menos un ticker válido")
         st.stop()
     
     tickers = validar_tickers(tickers)
     
     if len(tickers) == 0:
-        st.error("❌ No hay tickers válidos")
+        st.error("❌ No se encontraron tickers válidos")
         st.stop()
 
     # Descargar datos
@@ -58,7 +108,7 @@ if descargar:
     elif frecuencia == "Mensual":
         data = data.resample('M').last()
 
-    # --- NUEVO: Input de pesos personalizados ---
+    # Input de pesos personalizados
     st.sidebar.markdown("### 🎯 Configuración de Pesos")
     opcion_pesos = st.sidebar.radio(
         "Método de asignación:",
@@ -66,7 +116,7 @@ if descargar:
     )
 
     if opcion_pesos == "Escenario Predefinido":
-        escenario = st.sidebar.selectbox("💰 Escenario", ["Conservador", "Moderado", "Agresivo"])
+        escenario = st.sidebar.selectbox("💰 Escenario de Inversión", ["Conservador", "Moderado", "Agresivo"])
         escenarios = {
             "Conservador": np.linspace(0.6, 0.1, len(tickers)),
             "Moderado": np.linspace(0.4, 0.2, len(tickers)),
@@ -75,23 +125,23 @@ if descargar:
         weights = escenarios[escenario]
         weights = weights / np.sum(weights)
     else:
-        st.sidebar.markdown("### 🔢 Pesos Manuales")
+        st.sidebar.markdown("### 🔢 Asigna Pesos Manualmente")
         pesos_manuales = []
         total = 0
         for i, ticker in enumerate(tickers):
-            peso = st.sidebar.slider(f"{ticker}", 0.0, 1.0, 1.0/len(tickers), 0.01)
+            peso = st.sidebar.slider(f"Peso para {ticker}", 0.0, 1.0, 1.0/len(tickers), 0.01)
             pesos_manuales.append(peso)
             total += peso
         
         if abs(total - 1.0) > 0.01:
-            st.sidebar.warning(f"⚠️ Suma: {total:.2f}. Normalizando...")
+            st.sidebar.warning(f"⚠️ La suma de pesos es {total:.2f}. Normalizando...")
             weights = np.array(pesos_manuales) / total
         else:
             weights = np.array(pesos_manuales)
         
         escenario = "Personalizado"
 
-    # --- CÁLCULOS PRINCIPALES (mantener tus cálculos actuales) ---
+    # Cálculos del portafolio
     returns = data.pct_change().dropna()
     mean_returns = returns.mean() * 252
     cov_matrix = returns.cov() * 252
@@ -103,7 +153,7 @@ if descargar:
     returns["Portfolio"] = (returns[tickers] * weights).sum(axis=1)
     valor_portafolio = (1 + returns["Portfolio"]).cumprod() * inversion_inicial
 
-    # --- NUEVO: Métricas en columnas ---
+    # Métricas en columnas
     st.subheader("🎯 Resumen Ejecutivo")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -115,16 +165,24 @@ if descargar:
     with col4:
         st.metric("Escenario", escenario)
 
-    # --- NUEVO: Gráfico interactivo con Plotly ---
-    st.subheader("📈 Evolución del Portafolio")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=valor_portafolio.index, y=valor_portafolio.values,
-                            mode='lines', name='Tu Portafolio', line=dict(color='green')))
-    fig.update_layout(title="Evolución del Valor del Portafolio",
-                     xaxis_title="Fecha", yaxis_title="Valor (USD)")
-    st.plotly_chart(fig)
+    # Visualización de Precios
+    st.subheader("📈 Evolución de Precios")
+    fig1 = go.Figure()
+    for ticker in tickers:
+        fig1.add_trace(go.Scatter(x=data.index, y=data[ticker], mode='lines', name=ticker))
+    fig1.update_layout(title="Evolución de Precios Ajustados", xaxis_title="Fecha", yaxis_title="Precio (USD)")
+    st.plotly_chart(fig1)
 
-    # --- MANTENER: Tus gráficos existentes (pero opcional cambiar a Plotly) ---
+    # Evolución del valor monetario con Plotly
+    st.subheader("💵 Evolución del Valor del Portafolio")
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(x=valor_portafolio.index, y=valor_portafolio.values,
+                            mode='lines', name='Portafolio', line=dict(color='green')))
+    fig2.update_layout(title="Evolución del valor monetario del portafolio",
+                      xaxis_title="Fecha", yaxis_title="Valor (USD)")
+    st.plotly_chart(fig2)
+
+    # Diagrama riesgo - retorno
     st.subheader("📊 Diagrama Riesgo - Retorno")
     asset_returns = mean_returns[tickers]
     asset_risk = returns[tickers].std() * np.sqrt(252)
@@ -132,22 +190,190 @@ if descargar:
     fig3, ax3 = plt.subplots(figsize=(7, 5))
     ax3.scatter(asset_risk.values, asset_returns.values, c='blue', s=80)
     for i, ticker in enumerate(tickers):
-        ax3.text(asset_risk.values[i] + 0.002, asset_returns.values[i], ticker, fontsize=9)
+        ax3.text(asset_risk.values[i] + 0.002, asset_returns.values[i], ticker, fontsize=9, ha='left', va='center')
     ax3.set_xlabel("Volatilidad (Riesgo)")
     ax3.set_ylabel("Rendimiento Esperado")
+    ax3.set_title("Diagrama Riesgo - Retorno")
     ax3.grid(True, linestyle='--', alpha=0.6)
     st.pyplot(fig3)
 
-    # --- NUEVO: Heatmap interactivo de correlaciones ---
+    # Heatmap de correlaciones con Plotly
     st.subheader("🔥 Heatmap de Correlaciones")
     corr_matrix = returns[tickers].corr()
-    fig_corr = px.imshow(corr_matrix, text_auto=True, aspect="auto",
-                        color_continuous_scale='RdBu_r')
-    st.plotly_chart(fig_corr)
+    fig4 = px.imshow(corr_matrix, text_auto=True, aspect="auto",
+                    color_continuous_scale='RdBu_r', title="Matriz de Correlaciones")
+    st.plotly_chart(fig4)
 
-    # --- MANTENER: El resto de tu código original ---
-    # (Pie charts, comparación de escenarios, recomendación, descargas)
-    # ... [todo lo que tienes después del diagrama riesgo-retorno se mantiene igual]
+    # Visualización del portafolio
+    st.subheader("🥧 Distribución del Portafolio")
+    fig5 = go.Figure(data=[go.Pie(labels=tickers, values=weights, hole=0.3)])
+    fig5.update_layout(title=f"Distribución del Portafolio ({escenario})")
+    st.plotly_chart(fig5)
+
+    # Interpretación del escenario
+    st.markdown("---")
+    st.subheader("🧠 Interpretación del Escenario Seleccionado")
+    if escenario == "Conservador":
+        st.info("🟩 Este portafolio busca minimizar el riesgo, con un enfoque en estabilidad. Su rendimiento esperado es menor, pero ofrece menor volatilidad y pérdidas potenciales.")
+    elif escenario == "Moderado":
+        st.info("🟨 Este portafolio equilibra riesgo y rendimiento. Es ideal para inversores con tolerancia media al riesgo que buscan un crecimiento sostenido.")
+    elif escenario == "Agresivo":
+        st.info("🟥 Este portafolio asume mayor riesgo con el objetivo de maximizar el rendimiento. Es adecuado para inversionistas con alta tolerancia a la volatilidad y posibles pérdidas.")
+    else:
+        st.info("📊 Portafolio personalizado con pesos definidos manualmente. Revise las métricas para evaluar el balance riesgo-rendimiento.")
+
+    # Solo mostrar comparación de escenarios si no es personalizado
+    if escenario != "Personalizado":
+        # Comparación de escenarios
+        st.subheader("📊 Comparación de Escenarios de Inversión")
+        fig_all, axs = plt.subplots(1, 3, figsize=(12, 4))
+        for i, (nombre, base_pesos) in enumerate({
+            "Conservador": np.linspace(0.6, 0.1, len(tickers)),
+            "Moderado": np.linspace(0.4, 0.2, len(tickers)),
+            "Agresivo": np.linspace(0.2, 0.6, len(tickers))
+        }.items()):
+            w = base_pesos / np.sum(base_pesos)
+            labels = tickers[:len(w)]
+            axs[i].pie(w, labels=labels, autopct='%1.1f%%', startangle=90)
+            axs[i].set_title(nombre)
+        plt.suptitle("Distribución de Pesos por Tipo de Portafolio")
+        st.pyplot(fig_all)
+
+        # Evaluación y recomendación de escenarios
+        st.subheader("🤖 Recomendación de Escenario Óptimo")
+        resultados = {}
+        for nombre, pesos in {
+            "Conservador": np.linspace(0.6, 0.1, len(tickers)),
+            "Moderado": np.linspace(0.4, 0.2, len(tickers)),
+            "Agresivo": np.linspace(0.2, 0.6, len(tickers))
+        }.items():
+            w = pesos / np.sum(pesos)
+            rendimiento = np.dot(w, mean_returns)
+            riesgo = np.sqrt(np.dot(w.T, np.dot(cov_matrix, w)))
+            sharpe = rendimiento / riesgo
+            resultados[nombre] = {"rendimiento": rendimiento, "riesgo": riesgo, "sharpe": sharpe}
+
+        df_resultados = pd.DataFrame(resultados).T
+        df_resultados = df_resultados.sort_values("sharpe", ascending=False)
+
+        st.dataframe(df_resultados.style.format({
+            "rendimiento": "{:.2%}",
+            "riesgo": "{:.2%}",
+            "sharpe": "{:.2f}"
+        }))
+
+        mejor_escenario = df_resultados.index[0]
+        st.success(f"✅ El escenario más eficiente según el Ratio de Sharpe es: **{mejor_escenario}** 🎯")
+
+        if mejor_escenario == "Conservador":
+            st.info("💡 Recomendación: Este portafolio ofrece mayor estabilidad y menor riesgo. Ideal para perfiles que priorizan seguridad sobre rentabilidad.")
+        elif mejor_escenario == "Moderado":
+            st.info("💡 Recomendación: Este portafolio equilibra riesgo y rendimiento, siendo adecuado para inversores con tolerancia media al riesgo.")
+        else:
+            st.info("💡 Recomendación: Este portafolio maximiza el rendimiento a costa de mayor volatilidad. Ideal para perfiles arriesgados que buscan crecimiento a largo plazo.")
+
+    # Descarga de resultados
+    st.subheader("📥 Descarga de Resultados")
+
+    # Exportar datos a Excel
+    excel_buffer = BytesIO()
+    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+        data.to_excel(writer, sheet_name='Precios')
+        returns.to_excel(writer, sheet_name='Rendimientos')
+        if escenario != "Personalizado":
+            df_resultados.to_excel(writer, sheet_name='Escenarios')
+
+    st.download_button(
+        label="📊 Descargar en Excel",
+        data=excel_buffer.getvalue(),
+        file_name="analisis_portafolio.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # Generar reporte PDF
+    st.subheader("📄 Generar Reporte en PDF")
+    pdf_buffer = BytesIO()
+
+    # Crear documento
+    doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    # Título
+    title = Paragraph("<b><font size=18 color='#004aad'>SMART PORTAFOLIO - REPORTE DE INVERSIÓN</font></b>", styles["Title"])
+    elements.append(title)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # Datos generales
+    intro = Paragraph(f"""
+    <font size=12>
+    <b>Escenario seleccionado:</b> {escenario}<br/>
+    <b>Activos analizados:</b> {', '.join(tickers)}<br/>
+    <b>Inversión inicial:</b> ${inversion_inicial:,.2f}
+    </font>
+    """, styles["Normal"])
+    elements.append(intro)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    # Resultados
+    resumen_data = [
+        ["Métrica", "Valor"],
+        ["Rendimiento esperado", f"{port_return:.2%}"],
+        ["Volatilidad esperada", f"{port_volatility:.2%}"],
+        ["Ratio de Sharpe", f"{sharpe_ratio:.2f}"],
+    ]
+    
+    if escenario != "Personalizado":
+        resumen_data.append(["Escenario recomendado", mejor_escenario])
+
+    table = Table(resumen_data, hAlign='LEFT')
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    elements.append(table)
+    elements.append(Spacer(1, 0.3 * inch))
+
+    # Conclusión
+    if escenario != "Personalizado":
+        conclusion = Paragraph(f"""
+        <font size=12>
+        La simulación de escenarios permite observar cómo el riesgo y el rendimiento están estrechamente relacionados.<br/>
+        El portafolio <b>{mejor_escenario}</b> presenta la mejor eficiencia según el Ratio de Sharpe.<br/><br/>
+        <b>Interpretación:</b><br/>
+        {("Este portafolio prioriza la estabilidad, ideal para perfiles conservadores." if mejor_escenario == "Conservador" 
+        else "Este portafolio equilibra riesgo y rendimiento, ideal para inversores moderados." 
+        if mejor_escenario == "Moderado" 
+        else "Este portafolio busca maximizar ganancias, ideal para perfiles arriesgados.")}
+        </font>
+        """, styles["Normal"])
+    else:
+        conclusion = Paragraph(f"""
+        <font size=12>
+        Portafolio personalizado con distribución específica según preferencias del usuario.<br/>
+        <b>Rendimiento esperado:</b> {port_return:.2%}<br/>
+        <b>Volatilidad esperada:</b> {port_volatility:.2%}<br/>
+        <b>Eficiencia (Sharpe):</b> {sharpe_ratio:.2f}<br/>
+        </font>
+        """, styles["Normal"])
+    
+    elements.append(conclusion)
+
+    # Guardar PDF
+    doc.build(elements)
+    pdf_buffer.seek(0)
+
+    st.download_button(
+        label="📑 Descargar Reporte en PDF",
+        data=pdf_buffer,
+        file_name="Reporte_Portafolio.pdf",
+        mime="application/pdf"
+    )
 
 else:
-    st.info("👈 Configura los parámetros en la barra lateral y haz clic en 'Descargar y Analizar'")
+    st.info("👈 Configura los parámetros en la barra lateral y haz clic en 'Descargar y Analizar' para comenzar el análisis.")
