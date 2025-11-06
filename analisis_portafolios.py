@@ -28,6 +28,34 @@ warnings.filterwarnings('ignore')
 
 st.markdown("<h1 style='text-align: center; color:#004aad;'>Smart Portafolio - Simulación de Escenarios</h1>", unsafe_allow_html=True)
 
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Circle, PathPatch
+from matplotlib.path import Path
+import streamlit as st
+
+def crear_logo():
+    fig, ax = plt.subplots(figsize=(6, 6))
+    
+    # Cerebro estilizado
+    brain_x = np.linspace(0, 2*np.pi, 100)
+    brain_y = np.sin(brain_x) * 0.3 + 0.5
+    ax.plot(brain_x, brain_y, color='#004aad', linewidth=3)
+    
+    # Línea de gráfico ascendente
+    chart_x = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    chart_y = [0.2, 0.3, 0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+    ax.plot(chart_x, chart_y, color='#00cc66', linewidth=4)
+    
+    # Punto de conexión (inteligencia + inversión)
+    ax.scatter(2.8, 0.85, color='#ff6b6b', s=200, zorder=5)
+    
+    ax.set_xlim(0, 6)
+    ax.set_ylim(0, 1.5)
+    ax.axis('off')
+    
+    return fig
+
 st.write("""
 Esta aplicación realiza una **simulación de escenarios de inversión**, aplicando la *Teoría Moderna de Portafolios de Markowitz*.
 
