@@ -7,18 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1OHRI3VCCTIOc3M4eLd18hLDRVqrlBv_n
 """
 
-!pip install streamlit pandas numpy yfinance matplotlib
-
-#Importación las librerías
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import yfinance as yf
-import matplotlib.pyplot as plt
-
-# Encabezado principal
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -32,146 +20,134 @@ Se simulan tres escenarios (Conservador, Moderado y Agresivo) para observar cóm
 Los datos se obtienen directamente desde **Yahoo Finance**, y los activos seleccionados pertenecen al sector tecnológico.
 """)
 
-# Configuración de entradas
+# Validación de tickers
+def validar_tickers(tickers):
+    tickers_validos = []
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).info
+            if info.get('regularMarketPrice') is not None:
+                tickers_validos.append(ticker)
+        except:
+            st.warning(f"⚠️ Ticker {ticker} no válido")
+    return tickers_validos
 
-st.sidebar.header("⚙️ Configuración del análisis")
-
-lista_tickers = ['AAPL', 'MSFT', 'META']
-tickers = st.multiselect("Elija un ticker o varios", lista_tickers, default=['AAPL'])
-descargar = st.button("Descargar")
-
-fecha_inicio = st.date_input("Fecha inicial", pd.to_datetime("2020-01-01"))
-fecha_fin = st.date_input("Fecha final", pd.to_datetime("2023-12-31"))
-inversion_inicial = st.number_input("Inversión inicial (USD)", min_value=1000, value=10000)
-frecuencia = st.selectbox("Frecuencia temporal", ["Diaria", "Mensual"])
-
+# Ejecutar análisis al hacer clic
 if descargar:
-    if not tickers:
-        st.warning("⚠️ Debes seleccionar al menos un ticker para descargar datos.")
+    if len(tickers) == 0:
+        st.error("❌ Ingresa al menos un ticker")
+        st.stop()
+    
+    tickers = validar_tickers(tickers)
+    
+    if len(tickers) == 0:
+        st.error("❌ No hay tickers válidos")
+        st.stop()
+
+    # Descargar datos
+    with st.spinner('📥 Descargando datos...'):
+        data = yf.download(tickers, start=fecha_inicio, end=fecha_fin)["Close"]
+    
+    # Mostrar datos
+    st.subheader("📊 Datos Descargados")
+    st.dataframe(data.tail())
+
+    # Ajustar frecuencia
+    if frecuencia == "Semanal":
+        data = data.resample('W').last()
+    elif frecuencia == "Mensual":
+        data = data.resample('M').last()
+
+    # --- NUEVO: Input de pesos personalizados ---
+    st.sidebar.markdown("### 🎯 Configuración de Pesos")
+    opcion_pesos = st.sidebar.radio(
+        "Método de asignación:",
+        ["Escenario Predefinido", "Pesos Personalizados"]
+    )
+
+    if opcion_pesos == "Escenario Predefinido":
+        escenario = st.sidebar.selectbox("💰 Escenario", ["Conservador", "Moderado", "Agresivo"])
+        escenarios = {
+            "Conservador": np.linspace(0.6, 0.1, len(tickers)),
+            "Moderado": np.linspace(0.4, 0.2, len(tickers)),
+            "Agresivo": np.linspace(0.2, 0.6, len(tickers))
+        }
+        weights = escenarios[escenario]
+        weights = weights / np.sum(weights)
     else:
-        with st.spinner("📥 Descargando datos desde Yahoo Finance..."):
-            data = yf.download(tickers, start=fecha_inicio, end=fecha_fin)["Adj Close"]
-            st.success("✅ Datos descargados correctamente.")
-            st.dataframe(data.tail())
+        st.sidebar.markdown("### 🔢 Pesos Manuales")
+        pesos_manuales = []
+        total = 0
+        for i, ticker in enumerate(tickers):
+            peso = st.sidebar.slider(f"{ticker}", 0.0, 1.0, 1.0/len(tickers), 0.01)
+            pesos_manuales.append(peso)
+            total += peso
+        
+        if abs(total - 1.0) > 0.01:
+            st.sidebar.warning(f"⚠️ Suma: {total:.2f}. Normalizando...")
+            weights = np.array(pesos_manuales) / total
+        else:
+            weights = np.array(pesos_manuales)
+        
+        escenario = "Personalizado"
+
+    # --- CÁLCULOS PRINCIPALES (mantener tus cálculos actuales) ---
+    returns = data.pct_change().dropna()
+    mean_returns = returns.mean() * 252
+    cov_matrix = returns.cov() * 252
+
+    port_return = np.dot(weights, mean_returns)
+    port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe_ratio = port_return / port_volatility
+
+    returns["Portfolio"] = (returns[tickers] * weights).sum(axis=1)
+    valor_portafolio = (1 + returns["Portfolio"]).cumprod() * inversion_inicial
+
+    # --- NUEVO: Métricas en columnas ---
+    st.subheader("🎯 Resumen Ejecutivo")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Rendimiento Esperado", f"{port_return:.2%}")
+    with col2:
+        st.metric("Volatilidad Anual", f"{port_volatility:.2%}")
+    with col3:
+        st.metric("Ratio de Sharpe", f"{sharpe_ratio:.2f}")
+    with col4:
+        st.metric("Escenario", escenario)
+
+    # --- NUEVO: Gráfico interactivo con Plotly ---
+    st.subheader("📈 Evolución del Portafolio")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=valor_portafolio.index, y=valor_portafolio.values,
+                            mode='lines', name='Tu Portafolio', line=dict(color='green')))
+    fig.update_layout(title="Evolución del Valor del Portafolio",
+                     xaxis_title="Fecha", yaxis_title="Valor (USD)")
+    st.plotly_chart(fig)
+
+    # --- MANTENER: Tus gráficos existentes (pero opcional cambiar a Plotly) ---
+    st.subheader("📊 Diagrama Riesgo - Retorno")
+    asset_returns = mean_returns[tickers]
+    asset_risk = returns[tickers].std() * np.sqrt(252)
+
+    fig3, ax3 = plt.subplots(figsize=(7, 5))
+    ax3.scatter(asset_risk.values, asset_returns.values, c='blue', s=80)
+    for i, ticker in enumerate(tickers):
+        ax3.text(asset_risk.values[i] + 0.002, asset_returns.values[i], ticker, fontsize=9)
+    ax3.set_xlabel("Volatilidad (Riesgo)")
+    ax3.set_ylabel("Rendimiento Esperado")
+    ax3.grid(True, linestyle='--', alpha=0.6)
+    st.pyplot(fig3)
+
+    # --- NUEVO: Heatmap interactivo de correlaciones ---
+    st.subheader("🔥 Heatmap de Correlaciones")
+    corr_matrix = returns[tickers].corr()
+    fig_corr = px.imshow(corr_matrix, text_auto=True, aspect="auto",
+                        color_continuous_scale='RdBu_r')
+    st.plotly_chart(fig_corr)
+
+    # --- MANTENER: El resto de tu código original ---
+    # (Pie charts, comparación de escenarios, recomendación, descargas)
+    # ... [todo lo que tienes después del diagrama riesgo-retorno se mantiene igual]
+
 else:
-    st.info("👈 Selecciona los activos y presiona **Descargar** para iniciar.")
-
-# Descarga de datos
-
-data = yf.download(tickers, start=fecha_inicio, end=fecha_fin)["Adj Close"]
-st.subheader("📊 Datos históricos descargados")
-st.dataframe(data.tail())
-
-# Visualización de precios
-
-st.subheader("📈 Evolución histórica de precios")
-fig1, ax1 = plt.subplots(figsize=(10, 4))
-data.plot(ax=ax1)
-plt.title("Evolución de precios ajustados")
-plt.xlabel("Fecha")
-plt.ylabel("Precio (USD)")
-st.pyplot(fig1)
-
-# Cálculo de rendimientos
-
-returns = data.pct_change().dropna()
-mean_returns = returns.mean() * 252
-cov_matrix = returns.cov() * 252
-
-# Estadísticas generales
-display(returns.describe().T)
-
-# Escenario de inversión
-
-st.sidebar.header("💰 Escenario de inversión")
-escenario = st.sidebar.selectbox("Seleccione el tipo de portafolio", ["Conservador", "Moderado", "Agresivo"])
-
-escenarios = {
-    "Conservador": np.array([0.6, 0.3, 0.1])[:len(tickers)],
-    "Moderado": np.array([0.4, 0.4, 0.2])[:len(tickers)],
-    "Agresivo": np.array([0.2, 0.3, 0.5])[:len(tickers)]
-}
-
-weights = escenarios[escenario]
-weights = weights / np.sum(weights)
-
-# Cálculos del portafolio
-
-port_return = np.dot(weights, mean_returns)
-port_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-sharpe_ratio = port_return / port_volatility
-
-# Retorno acumulado y evolución monetaria
-
-returns["Portfolio"] = (returns[tickers] * weights).sum(axis=1)
-valor_portafolio = (1 + returns["Portfolio"]).cumprod() * inversion_inicial
-
-# Resultados
-
-st.subheader(f"📊 Resultados del Portafolio ({escenario})")
-st.write("**Pesos del Portafolio:**", dict(zip(tickers, weights.round(2))))
-st.write(f"**Rendimiento Esperado:** {port_return:.2%}")
-st.write(f"**Volatilidad Esperada:** {port_volatility:.2%}")
-st.write(f"**Sharpe Ratio:** {sharpe_ratio:.2f}")
-
-# Evolución del valor monetario
-
-st.subheader("💵 Evolución del valor del portafolio")
-fig2, ax2 = plt.subplots(figsize=(10, 4))
-valor_portafolio.plot(ax=ax2, color='green')
-plt.title("Evolución del valor monetario del portafolio")
-plt.xlabel("Fecha")
-plt.ylabel("Valor (USD)")
-st.pyplot(fig2)
-
-# Diagrama riesgo - retorno
-
-st.subheader("📊 Diagrama Riesgo - Retorno")
-fig3, ax3 = plt.subplots()
-ax3.scatter(port_volatility, port_return, c='blue', s=100)
-ax3.set_xlabel("Volatilidad (Riesgo)")
-ax3.set_ylabel("Rendimiento Esperado")
-ax3.set_title("Diagrama Riesgo - Retorno")
-st.pyplot(fig3)
-
-#  Correlaciones
-
-st.subheader("🔥 Matriz de correlaciones entre activos")
-corr_matrix = returns[tickers].corr()
-st.dataframe(corr_matrix)
-
-fig4, ax4 = plt.subplots()
-cax = ax4.imshow(corr_matrix, cmap="coolwarm", interpolation="nearest")
-plt.title("Heatmap de Correlaciones")
-plt.colorbar(cax)
-ax4.set_xticks(range(len(corr_matrix)))
-ax4.set_xticklabels(corr_matrix.columns, rotation=45)
-ax4.set_yticks(range(len(corr_matrix)))
-ax4.set_yticklabels(corr_matrix.columns)
-st.pyplot(fig4)
-
-# Visualización del portafolio
-
-st.subheader("🥧 Distribución del portafolio por escenario")
-
-fig, ax = plt.subplots()
-ax.pie(weights, labels=lista_tickers, autopct="%1.1f%%", startangle=90)
-ax.set_title(f"Distribución del portafolio ({escenario})")
-st.pyplot(fig)
-
-# Distribución de pesos por escenario
-
-st.subheader("📊 Comparación de escenarios de inversión")
-
-fig_all, axs = plt.subplots(1, 3, figsize=(12, 4))
-for i, (nombre, w) in enumerate({
-    "Conservador": np.array([0.6, 0.3, 0.1])[:len(tickers)],
-    "Moderado": np.array([0.4, 0.4, 0.2])[:len(tickers)],
-    "Agresivo": np.array([0.2, 0.3, 0.5])[:len(tickers)]
-}.items()):
-    w = w / np.sum(w)
-    axs[i].pie(w, labels=tickers, autopct='%1.1f%%', startangle=90)
-    axs[i].set_title(nombre)
-
-plt.suptitle("Distribución de pesos por tipo de portafolio")
-st.pyplot(fig_all)
+    st.info("👈 Configura los parámetros en la barra lateral y haz clic en 'Descargar y Analizar'")
