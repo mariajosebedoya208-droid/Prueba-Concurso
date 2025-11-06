@@ -36,12 +36,13 @@ st.markdown("""
     .main-header {
         font-family: 'Inter', sans-serif;
         text-align: center;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #a8e6cf 0%, #dcedc1 50%, #ffd3b6 100%);
         padding: 2rem;
         border-radius: 15px;
         margin-bottom: 2rem;
-        color: white;
+        color: #2c5530;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        border: 2px solid #b8dfd8;
     }
     
     .main-title {
@@ -56,19 +57,20 @@ st.markdown("""
     
     .main-subtitle {
         font-size: 1.2rem;
-        opacity: 0.9;
+        opacity: 0.8;
         font-weight: 400;
+        color: #4a7c59;
     }
 </style>
 
 <div class="main-header">
     <div class="main-title">
-        <span></span>
+        <span>🌱</span>
         <span>Smart Portafolio</span>
-        <span>📈</span>
+        <span>📊</span>
     </div>
     <div class="main-subtitle">
-        Simulación de Escenarios
+        Simulación de Escenarios • Crecimiento Inteligente
     </div>
 </div>
 """, unsafe_allow_html=True)
