@@ -68,7 +68,7 @@ st.markdown("""
         <span>📈</span>
     </div>
     <div class="main-subtitle">
-        Simulación de Escenarios • Teoría de Markowitz • Análisis Inteligente
+        Simulación de Escenarios
     </div>
 </div>
 """, unsafe_allow_html=True)
